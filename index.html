@@ -84,12 +84,14 @@
     function App() {
       const [activeTab, setActiveTab] = useState('cloud');
       const [driveUrl, setDriveUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vSoEPmzQQPSf6WIfkASsEPdKkJvO2mVC250oDxt9-4Bis4T7cbNm90UTctKxKYuXx8k2pvdjkEE8zWY/pubhtml');
+      const [portfolioUrl, setPortfolioUrl] = useState('https://docs.google.com/spreadsheets/d/17frl7t_93hDOmc3d_FzXFaUh4Kko2rn8NnbemfJqKMk/edit?usp=sharing');
       const [rawText, setRawText] = useState('');
       
       const [selectedEtf, setSelectedEtf] = useState('');
       const [selectedDayDetail, setSelectedDayDetail] = useState('');
       
       const [loadedData, setLoadedData] = useState({});
+      const [loadedPortfolioData, setLoadedPortfolioData] = useState({});
       const [syncStatus, setSyncStatus] = useState('idle');
       const [errorMessage, setErrorMessage] = useState('');
       const [showHowToPublish, setShowHowToPublish] = useState(false);
@@ -179,6 +181,48 @@
         }
       };
 
+      // ==================== 持股明細解析引擎 ====================
+      const parsePortfolioCsv = (text) => {
+        try {
+          if (!text || text.trim() === '') return {};
+          const lines = text.split(/\r?\n/);
+          if (lines.length < 2) return {};
+          
+          const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
+          const dateIdx = headers.findIndex(h => h.includes('日期') || h.toLowerCase().includes('date'));
+          const codeIdx = headers.findIndex(h => h.includes('股票代號') || h.includes('代碼'));
+          const nameIdx = headers.findIndex(h => h.includes('名稱'));
+          const sharesIdx = headers.findIndex(h => h.includes('股數'));
+          const weightIdx = headers.findIndex(h => h.includes('權重'));
+          const etfIdx = headers.findIndex(h => h.includes('ETF') || h.includes('類別'));
+
+          const tempMap = {};
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            const cells = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+            if (cells.length < 4) continue;
+            
+            const etf = etfIdx !== -1 ? cells[etfIdx] : '00981A';
+            const date = cells[dateIdx];
+            const code = cells[codeIdx];
+            const name = cells[nameIdx];
+            const shares = parseFloat(cells[sharesIdx] || '0');
+            const weight = weightIdx !== -1 ? parseFloat(cells[weightIdx] || '0') : 0;
+            
+            if (!date || !code || isNaN(shares)) continue;
+            
+            if(!tempMap[etf]) tempMap[etf] = {};
+            if(!tempMap[etf][date]) tempMap[etf][date] = {};
+            tempMap[etf][date][code] = { code, name, shares, weight };
+          }
+          return tempMap;
+        } catch (e) {
+          console.warn(`明細 CSV 解析錯誤：${e.message}`);
+          return {};
+        }
+      };
+
       // ==================== 雲端資料抓取處理 ====================
       const extractDriveId = (url) => {
         if (!url) return null;
@@ -200,14 +244,12 @@
 
       const clearDataOnError = () => {
         setLoadedData({});
+        setLoadedPortfolioData({});
         setSelectedEtf('');
         setSelectedDayDetail('');
       };
 
-      const fetchCsvFromDrive = async (targetUrl) => {
-        setSyncStatus('loading');
-        setErrorMessage('');
-
+      const fetchSingleCsv = async (targetUrl) => {
         let directDownloadUrl = '';
         let isPublishToWeb = false;
 
@@ -222,12 +264,7 @@
         } 
         else {
           const fileId = extractDriveId(targetUrl);
-          if (!fileId) {
-            setSyncStatus('error');
-            setErrorMessage('無法從輸入網址中提取有效 Google ID。請確認輸入網址是否為 Google 試算表之共用連結。');
-            clearDataOnError();
-            return;
-          }
+          if (!fileId) throw new Error('無法從輸入網址中提取有效 Google ID。');
           directDownloadUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv`;
         }
 
@@ -265,12 +302,34 @@
           }
         }
 
+        if (!rawText || rawText.includes('<!DOCTYPE html>') || rawText.includes('Sign in - Google Accounts') || rawText.includes('google.com/accounts')) {
+          throw new Error('未能成功讀取 Google 試算表內容。\n若是發佈到網路的連結，請確保已發佈；若為共用連結，請確認權限已設為「知道連結的任何人均可檢視」。');
+        }
+        return rawText;
+      };
+
+      const fetchCsvFromDrive = async (summaryUrl, portfolioUrlStr) => {
+        setSyncStatus('loading');
+        setErrorMessage('');
+
         try {
-          if (!rawText || rawText.includes('<!DOCTYPE html>') || rawText.includes('Sign in - Google Accounts') || rawText.includes('google.com/accounts')) {
-            throw new Error('未能成功讀取 Google 試算表內容。若是發佈到網路的連結，請確保已發佈；若為共用連結，請確認權限已設為「知道連結的任何人」。');
+          // 1. 先抓取總資產表
+          const summaryText = await fetchSingleCsv(summaryUrl);
+          const parsedSummary = parseCsvToData(summaryText);
+
+          // 2. 再抓取持股明細表
+          let parsedPortfolio = {};
+          if (portfolioUrlStr && portfolioUrlStr.trim() !== '') {
+            try {
+              const portfolioText = await fetchSingleCsv(portfolioUrlStr);
+              parsedPortfolio = parsePortfolioCsv(portfolioText);
+            } catch (pErr) {
+              console.warn("持股明細抓取失敗，但仍會顯示資產總表", pErr);
+            }
           }
-          const parsed = parseCsvToData(rawText);
-          processLoadedData(parsed);
+
+          setLoadedPortfolioData(parsedPortfolio);
+          processLoadedData(parsedSummary);
         } catch (err) {
           setSyncStatus('error');
           setErrorMessage(err.message);
@@ -320,12 +379,58 @@
       };
 
       useEffect(() => {
-        fetchCsvFromDrive(driveUrl);
+        fetchCsvFromDrive(driveUrl, portfolioUrl);
       }, []);
 
       const activeDataset = useMemo(() => loadedData[selectedEtf] || [], [loadedData, selectedEtf]);
       const latestFiveDays = useMemo(() => activeDataset.slice(0, 5), [activeDataset]);
       const selectedDayData = useMemo(() => activeDataset.find(d => d.date === selectedDayDetail) || activeDataset[0] || null, [activeDataset, selectedDayDetail]);
+
+      // ==================== 持股變化分析運算 ====================
+      const portfolioChanges = useMemo(() => {
+        if (!loadedPortfolioData[selectedEtf]) return { additions: [], reductions: [], newPositions: [] };
+        
+        const dates = Object.keys(loadedPortfolioData[selectedEtf]).sort((a, b) => new Date(b) - new Date(a));
+        const currIdx = dates.indexOf(selectedDayDetail);
+        
+        // 若找不到該日或沒有前一交易日可對比，則回傳空陣列
+        if (currIdx === -1 || currIdx === dates.length - 1) return { additions: [], reductions: [], newPositions: [] };
+
+        const currHoldings = loadedPortfolioData[selectedEtf][dates[currIdx]];
+        const prevHoldings = loadedPortfolioData[selectedEtf][dates[currIdx + 1]];
+
+        const additions = [];
+        const reductions = [];
+        const newPositions = [];
+
+        // 檢查今天的持股：若前一天不存在則為「新建倉」，若大於前一天為「加碼」，若小於前一天為「減碼/清倉」
+        for (const code in currHoldings) {
+          const curr = currHoldings[code];
+          const prev = prevHoldings[code];
+          
+          if (!prev || prev.shares === 0) {
+            if (curr.shares > 0) newPositions.push({ ...curr, diff: curr.shares });
+          } else if (curr.shares > prev.shares) {
+            additions.push({ ...curr, diff: curr.shares - prev.shares });
+          } else if (curr.shares < prev.shares) {
+            reductions.push({ ...curr, diff: curr.shares - prev.shares, isCleared: curr.shares === 0 });
+          }
+        }
+
+        // 檢查前一天存在但今天消失的持股：標記為「清倉」
+        for (const code in prevHoldings) {
+          if (!currHoldings[code] && prevHoldings[code].shares > 0) {
+            reductions.push({ ...prevHoldings[code], shares: 0, diff: -prevHoldings[code].shares, isCleared: true });
+          }
+        }
+
+        // 依據變動股數排序 (加碼與新建倉由大到小；減碼清倉取絕對值由大到小)
+        additions.sort((a, b) => b.diff - a.diff);
+        reductions.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+        newPositions.sort((a, b) => b.diff - a.diff);
+
+        return { additions, reductions, newPositions };
+      }, [loadedPortfolioData, selectedEtf, selectedDayDetail]);
 
       // ==================== 策略解讀 ====================
       const cashTacticsInterpretation = (dayData) => {
@@ -333,9 +438,9 @@
         const change = dayData.cashChange;
         const isPreSpending = dayData.receivable < 0 && Math.abs(dayData.receivable) > dayData.cash;
 
-        if (isPreSpending) return { title: '領錢進攻 ＆ 預支佈局 🚀', text: `今日實際「應收付證券交割款」高達 -${(Math.abs(dayData.receivable)/100000000).toFixed(2)} 億，代表經理人利用保證金機制先行鎖定龐大部位、準備大規模建倉。`, color: 'bg-rose-950/30 border border-rose-500/20' };
-        if (change < 0) return { title: '領錢進攻（大舉入市） 🔥', text: `今日實際可用剩餘現金減少 ${Math.abs(change).toFixed(2)} 億。這代表經理人此時正將累積下來的戰略儲備投入市場、積極加碼。`, color: 'bg-rose-950/20 border border-rose-500/15' };
-        return { title: '存錢防禦（累積彈藥） 🛡️', text: `今日實際剩餘可用金增加 ${change.toFixed(2)} 億。主要反映經理人適度主動賣股變現以調節風險；或是市場應收款陸續回收。`, color: 'bg-emerald-950/20 border border-emerald-500/15' };
+        if (isPreSpending) return { title: '領錢進攻 ＆ 預支佈局 🚀', text: `今日實際「應收付證券交割款」高達 -${(Math.abs(dayData.receivable)/100000000).toFixed(2)} 億，已超出帳面現金庫存。這代表經理人利用 T+2 交割時差提前「預支」資金買進潛力股。目前處於火力全開的絕對進攻狀態！`, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' };
+        if (change < 0) return { title: '領錢進攻（大舉入市） 🔥', text: `今日實際可用剩餘現金減少 ${Math.abs(change).toFixed(2)} 億。這代表經理人此時正將累積下來的防禦銀彈大舉提領並換成股票持股，操作取態積極強勢！`, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+        return { title: '存錢防禦（累積彈藥） 🛡️', text: `今日實際剩餘可用金增加 ${change.toFixed(2)} 億。主要反映經理人適度主動賣股變現以調節風險；或為當日湧入大筆新申購資金尚來不及布局股票，資金被動累積，為後續保留進攻底牌。`, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' };
       };
 
       const marketSentimentInterpretation = (dayData) => {
@@ -343,9 +448,9 @@
         const ratioChange = dayData.unitsChangeRatio;
         const estFlow = dayData.estCashFlow100M;
 
-        if (ratioChange > 1.5) return { trend: '極度狂熱 📈', text: `流通在外受益單位單日暴增 ${(ratioChange).toFixed(2)}%，推估為基金帶進高達 +${estFlow.toFixed(2)} 億元新資金。市場搶購風氣熾熱！` };
-        if (ratioChange > 0.05) return { trend: '買氣暢旺 👍', text: `大眾申購穩定遞增，流通單位數成長 ${(ratioChange).toFixed(2)}%，挹注新資金約 +${estFlow.toFixed(2)} 億元。投資人信心持續增溫。` };
-        if (ratioChange < -0.05) return { trend: '獲利贖回 💰', text: `流通在外單位減少 ${Math.abs(ratioChange).toFixed(2)}%，估計流出金額約 ${Math.abs(estFlow).toFixed(2)} 億元。投資人開始獲利了結。` };
+        if (ratioChange > 1.5) return { trend: '極度狂熱 📈', text: `流通在外受益單位單日暴增 ${(ratioChange).toFixed(2)}%，推估為基金帶進高達 +${estFlow.toFixed(2)} 億元的搶購狂潮。買盤流入速度正「瘋狂變快」！` };
+        if (ratioChange > 0.05) return { trend: '買氣暢旺 👍', text: `大眾申購穩定遞增，流通單位數成長 ${(ratioChange).toFixed(2)}%，挹注新資金約 +${estFlow.toFixed(2)} 億。進場追價速度「穩定加溫」。` };
+        if (ratioChange < -0.05) return { trend: '獲利贖回 💰', text: `流通在外單位減少 ${Math.abs(ratioChange).toFixed(2)}%，估計流出金額約 ${Math.abs(estFlow).toFixed(2)} 億。買進速度「正在放慢」，大眾多選擇逢高了結、落袋為安。` };
         return { trend: '靜待變盤 ⚖️', text: `流通單位變動平緩 (${(ratioChange).toFixed(3)}%)。市場目前正處於觀望階段，多空情緒暫時平穩沉澱。` };
       };
 
@@ -417,7 +522,7 @@
                   <div className="font-bold text-slate-300 border-b border-slate-800 pb-1">{chronologicalDays[hoveredIdx].date}</div>
                   <div className="flex justify-between gap-4 text-slate-400"><span>實際剩餘:</span><span className="font-mono font-bold text-cyan-400">{chronologicalDays[hoveredIdx].actualCash100M.toFixed(4)} 億</span></div>
                   <div className="flex justify-between gap-4 text-slate-400"><span>現金佔比:</span><span className="font-mono text-slate-300">{chronologicalDays[hoveredIdx].cashRatio.toFixed(3)}%</span></div>
-                  <div className="flex justify-between gap-4 text-slate-400"><span>單日淨增減:</span><span className={`font-mono font-bold ${chronologicalDays[hoveredIdx].cashChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chronologicalDays[hoveredIdx].cashChange > 0 ? '+' : ''}{chronologicalDays[hoveredIdx].cashChange.toFixed(4)} 億</span></div>
+                  <div className="flex justify-between gap-4 text-slate-400"><span>單日淨增減:</span><span className={`font-mono font-bold ${chronologicalDays[hoveredIdx].cashChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chronologicalDays[hoveredIdx].cashChange > 0 ? '+' : ''}{chronologicalDays[hoveredIdx].cashChange.toFixed(3)} 億</span></div>
                 </div>
               )}
             </div>
@@ -455,7 +560,7 @@
               <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-auto overflow-visible">
                 {gridLines.map((line, i) => (
                   <g key={i}>
-                    <line x1={pad.left} y1={line.y} x2={svgW - pad.right} y2={line.y} stroke={line.val === 0 ? "#475569" : "#1e293b"} strokeWidth={line.val === 0 ? "1.5" : "1"} strokeDasharray={line.val === 0 ? "2 2" : "4 4"} />
+                    <line x1={pad.left} y1={line.y} x2={svgW - pad.right} y2={line.y} stroke={line.val === 0 ? "#475569" : "#1e293b"} strokeWidth={line.val === 0 ? "1.5" : "1"} strokeDasharray={line.val === 0 ? "0" : "4 4"} />
                     <text x={pad.left - 8} y={line.y + 3} fill={line.val === 0 ? "#94a3b8" : "#64748b"} fontSize="9" fontFamily="monospace" textAnchor="end">{line.val > 0 ? '+' : ''}{line.val.toFixed(1)}</text>
                   </g>
                 ))}
@@ -481,7 +586,7 @@
                 <div className="absolute top-1 right-1 bg-slate-900/95 border border-slate-800 p-2.5 rounded-lg shadow-lg text-[11px] space-y-1 pointer-events-none z-10">
                   <div className="font-bold text-slate-300 border-b border-slate-800 pb-1">{chronologicalDays[hoveredIdx].date}</div>
                   <div className="flex justify-between gap-4 text-slate-400"><span>每股淨值:</span><span className="font-mono text-slate-200">{chronologicalDays[hoveredIdx].nav.toFixed(2)} 元</span></div>
-                  <div className="flex justify-between gap-4 text-slate-400"><span>流通受益單位:</span><span className="font-mono text-slate-200">{(chronologicalDays[hoveredIdx].units / 100000000).toFixed(4)} 億個</span></div>
+                  <div className="flex justify-between gap-4 text-slate-400"><span>流通受益單位:</span><span className="font-mono text-slate-200">{(chronologicalDays[hoveredIdx].units / 100000000).toFixed(4)} 億</span></div>
                   <div className="flex justify-between gap-4 text-slate-400"><span>單位單日增減:</span><span className={`font-mono font-bold ${chronologicalDays[hoveredIdx].unitsChange100M > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chronologicalDays[hoveredIdx].unitsChange100M > 0 ? '+' : ''}{chronologicalDays[hoveredIdx].unitsChange100M.toFixed(4)} 億</span></div>
                   <div className="border-t border-slate-800 my-1 pt-1 flex justify-between gap-4 text-slate-300 font-semibold">
                     <span>估計申購淨引資:</span>
@@ -513,13 +618,13 @@
                 </div>
               </div>
               <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-                <button onClick={() => setActiveTab('cloud')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'cloud' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                <button onClick={() => setActiveTab('cloud')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'cloud' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
                   <i className="fas fa-link"></i> Google 試算表
                 </button>
-                <button onClick={() => setActiveTab('raw_paste')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'raw_paste' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                <button onClick={() => setActiveTab('raw_paste')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'raw_paste' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
                   <i className="fas fa-file-alt"></i> 手動貼上 CSV
                 </button>
-                <button onClick={() => setActiveTab('upload')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'upload' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                <button onClick={() => setActiveTab('upload')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'upload' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
                   <i className="fas fa-hdd"></i> 本地上傳
                 </button>
               </div>
@@ -545,16 +650,23 @@
                     <div className="bg-indigo-950/20 border border-indigo-500/15 p-4 rounded-xl text-xs text-slate-300 space-y-2 leading-relaxed">
                       <p className="font-bold text-white text-sm">💡 確保跨域串接暢通的操作指引：</p>
                       <p>1. 在您的 Google 試算表中，點擊右上角的 <span className="text-emerald-400 font-bold">「共用」</span> 按鈕。</p>
-                      <p>2. 在底下「一般存取權」中，將預設的「限制」切換為 <span className="text-indigo-400 font-bold">「知道連結的任何人」</span>（權限保持「檢視」即可）。</p>
+                      <p>2. 在底下「一般存取權」中，將預設的「限制」切換為 <span className="text-indigo-400 font-bold">「知道連結的任何人」</span>（權限保持「檢視者」即可）。</p>
                       <p>3. 點選「複製連結」取得網址並貼在下方即可。本網頁會全自動在前端轉換格式、執行運算！</p>
                     </div>
                   )}
-                  <div className="flex flex-col lg:flex-row gap-4">
-                    <div className="relative flex-1">
-                      <input type="text" value={driveUrl} onChange={(e) => setDriveUrl(e.target.value)} placeholder="請貼上您的 Google 試算表連結..." className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col lg:flex-row gap-4">
+                      <div className="relative flex-1">
+                        <label className="block text-[10px] text-indigo-300 mb-1.5 font-bold">資產總表 (Summary) 連結：</label>
+                        <input type="text" value={driveUrl} onChange={(e) => setDriveUrl(e.target.value)} placeholder="請貼上您的 Google 試算表連結..." className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-4 pr-12 text-xs text-slate-100 font-mono focus:border-indigo-500 focus:outline-none" />
+                      </div>
+                      <div className="relative flex-1">
+                        <label className="block text-[10px] text-indigo-300 mb-1.5 font-bold">持股明細表 (Portfolio) 連結：</label>
+                        <input type="text" value={portfolioUrl} onChange={(e) => setPortfolioUrl(e.target.value)} placeholder="請貼上持股明細的 Google 試算表連結..." className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-4 pr-12 text-xs text-slate-100 font-mono focus:border-indigo-500 focus:outline-none" />
+                      </div>
                     </div>
-                    <button onClick={() => fetchCsvFromDrive(driveUrl)} disabled={syncStatus === 'loading'} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 justify-center">
-                      <i className={`fas fa-sync-alt ${syncStatus === 'loading' ? 'animate-spin' : ''}`}></i> 同步連線
+                    <button onClick={() => fetchCsvFromDrive(driveUrl, portfolioUrl)} disabled={syncStatus === 'loading'} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors w-full lg:w-auto self-end">
+                      <i className={`fas fa-sync-alt ${syncStatus === 'loading' ? 'animate-spin' : ''}`}></i> 雙表同步連線
                     </button>
                   </div>
                 </div>
@@ -566,7 +678,7 @@
                     <i className="fas fa-file-alt text-indigo-400"></i> 手動貼上 CSV 文字檔
                   </h2>
                   <div className="space-y-2">
-                    <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="請在此貼上 CSV 數據... 第一行需為欄位標頭，例如: 資料日期,項目,數值,ETF類別" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-32 resize-none font-mono" />
+                    <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="請在此貼上 CSV 數據... 第一行需為欄位標頭，例如: 資料日期,項目,數值,ETF類別" className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:border-indigo-500 focus:outline-none"></textarea>
                     <div className="flex justify-end items-center">
                       <button onClick={handleRawTextParse} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 px-5 rounded-lg transition-colors">
                         即時解析與計算
@@ -604,7 +716,7 @@
                   </div>
                   <div className="flex items-center gap-2 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
                     <span className="text-[10px] text-slate-400">分析 ETF 代號：</span>
-                    <select value={selectedEtf} onChange={(e) => { setSelectedEtf(e.target.value); if (loadedData[e.target.value]?.[0]) setSelectedDayDetail(loadedData[e.target.value][0].date); }} className="bg-slate-900 border border-slate-700 text-xs text-white rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <select value={selectedEtf} onChange={(e) => { setSelectedEtf(e.target.value); if (loadedData[e.target.value]?.[0]) setSelectedDayDetail(loadedData[e.target.value][0].date); }} className="bg-transparent text-xs font-bold text-indigo-400 focus:outline-none cursor-pointer">
                       {Object.keys(loadedData).map(etf => <option key={etf} value={etf} className="bg-slate-900">{etf}</option>)}
                     </select>
                   </div>
@@ -648,7 +760,7 @@
                     </div>
                     <div className="flex flex-col gap-1 w-full md:w-auto z-10">
                       <label className="text-xs text-slate-400 font-semibold">基準日期切換：</label>
-                      <select value={selectedDayDetail} onChange={(e) => setSelectedDayDetail(e.target.value)} className="bg-slate-950 border border-slate-800 text-sm font-semibold text-white px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <select value={selectedDayDetail} onChange={(e) => setSelectedDayDetail(e.target.value)} className="bg-slate-950 border border-slate-800 text-sm font-semibold text-white px-4 py-2.5 rounded-xl focus:border-indigo-500 outline-none cursor-pointer">
                         {latestFiveDays.map(d => <option key={d.date} value={d.date}>{d.date}</option>)}
                       </select>
                     </div>
@@ -709,7 +821,7 @@
                                 </span>
                               </td>
                               <td className="py-3.5 px-4 text-center">
-                                <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${d.receivable < 0 && Math.abs(d.receivable) > d.cash ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' : d.cashChange < 0 ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'}`}>
+                                <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${d.receivable < 0 && Math.abs(d.receivable) > d.cash ? 'bg-rose-500/15 text-rose-400 border border-rose-500/25' : d.cashChange < 0 ? 'bg-rose-500/15 text-rose-400 border border-rose-500/25' : 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25'}`}>
                                    {d.receivable < 0 && Math.abs(d.receivable) > d.cash ? '預支攻堅 ⚡' : d.cashChange < 0 ? '領錢進攻 🔥' : '存錢防禦 🛡️'}
                                 </span>
                               </td>
@@ -726,12 +838,12 @@
                         <i className="fas fa-info-circle text-indigo-400"></i> 【即時運算明細表】基準日：{selectedDayData.date}
                       </h4>
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm mb-2">
-                        <div className="p-3 bg-slate-900 rounded-lg"><span className="text-xs text-slate-500">1. 帳面現金</span><br/><span className="font-mono text-white font-bold">{(selectedDayData.cash / 100000000).toFixed(2)} 億</span></div>
-                        <div className="p-3 bg-slate-900 rounded-lg"><span className="text-xs text-slate-500">2. 應收付證券款(+)</span><br/><span className={`font-mono font-bold ${selectedDayData.receivable >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{selectedDayData.receivable >= 0 ? '+' : ''}{(selectedDayData.receivable / 100000000).toFixed(2)} 億</span></div>
-                        <div className="p-3 bg-slate-900 rounded-lg"><span className="text-xs text-slate-500">3. 申贖應付款(+)</span><br/><span className={`font-mono font-bold ${selectedDayData.redemption >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{selectedDayData.redemption >= 0 ? '+' : ''}{(selectedDayData.redemption / 100000000).toFixed(2)} 億</span></div>
-                        <div className="p-3 bg-slate-900 rounded-lg border border-indigo-500/30"><span className="text-xs text-indigo-400 font-bold">4. 實際可用賸餘銀彈</span><br/><span className="font-mono text-indigo-400 font-bold">{selectedDayData.actualCash100M.toFixed(4)} 億</span></div>
+                        <div className="p-3 bg-slate-900 rounded-lg"><span className="text-xs text-slate-500">1. 帳面現金</span><br/><span className="font-mono text-white font-bold">{selectedDayData.cash.toLocaleString()}</span></div>
+                        <div className="p-3 bg-slate-900 rounded-lg"><span className="text-xs text-slate-500">2. 應收付證券款(+)</span><br/><span className={`font-mono font-bold ${selectedDayData.receivable < 0 ? 'text-rose-400' : 'text-slate-300'}`}>{selectedDayData.receivable.toLocaleString()}</span></div>
+                        <div className="p-3 bg-slate-900 rounded-lg"><span className="text-xs text-slate-500">3. 申贖應付款(+)</span><br/><span className={`font-mono font-bold ${selectedDayData.redemption < 0 ? 'text-rose-400' : 'text-slate-300'}`}>{selectedDayData.redemption.toLocaleString()}</span></div>
+                        <div className="p-3 bg-slate-900 rounded-lg border border-indigo-500/30"><span className="text-xs text-indigo-400 font-bold">4. 實際可用賸餘銀彈</span><br/><span className="font-mono text-cyan-400 font-black">{selectedDayData.rawActualCash.toLocaleString()} 元</span></div>
                       </div>
-                      <div className={`p-4 rounded-xl ${cashTacticsInterpretation(selectedDayData).color}`}>
+                      <div className={`p-4 rounded-xl border ${cashTacticsInterpretation(selectedDayData).color}`}>
                         <h5 className="font-bold text-sm mb-1">{cashTacticsInterpretation(selectedDayData).title}</h5>
                         <p className="text-xs leading-relaxed">{cashTacticsInterpretation(selectedDayData).text}</p>
                       </div>
@@ -805,29 +917,80 @@
                       <i className="fas fa-layer-group text-lg text-indigo-400"></i>
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white">三、重要持股變化（產業類別追蹤）</h3>
-                      <p className="text-xs text-slate-400">追蹤主動型操盤手在基金擴張期間的核心個股與產業配置動態</p>
+                      <h3 className="text-lg font-bold text-white">三、重要持股變化（每日追蹤）</h3>
+                      <p className="text-xs text-slate-400">比對 {selectedDayDetail} 與前一交易日之持股差異，掌握經理人「汰弱留強」動態</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-3">
                       <h4 className="text-emerald-400 font-bold flex items-center gap-2 border-b border-slate-850 pb-2">
                         <i className="fas fa-arrow-trend-up"></i> 【大幅加碼】主力攻擊箭頭
                       </h4>
-                      <div className="text-xs text-slate-500 text-center py-6">請等待匯入持股明細檔案以顯示資料...</div>
+                      {portfolioChanges.additions.length > 0 ? (
+                        portfolioChanges.additions.map(stock => (
+                          <div key={stock.code} className="bg-slate-900 p-3 rounded-lg border border-slate-850 hover:border-emerald-500/20 transition-all">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm font-bold text-white">{stock.name} <span className="text-xs font-normal text-slate-500">{stock.code}</span></span>
+                              <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-mono font-bold">+{((stock.diff) / 1000).toLocaleString()}K</span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 flex justify-between mt-1">
+                              <span>權重: {stock.weight}%</span>
+                              <span>庫存: {(stock.shares / 1000).toLocaleString()}K</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-slate-500 text-center py-6">今日無加碼標的或缺乏前日比對資料...</div>
+                      )}
                     </div>
+                    
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-3">
                       <h4 className="text-rose-400 font-bold flex items-center gap-2 border-b border-slate-850 pb-2">
                         <i className="fas fa-arrow-trend-down"></i> 【大幅減碼/清倉】非核心汰弱
                       </h4>
-                      <div className="text-xs text-slate-500 text-center py-6">請等待匯入持股明細檔案以顯示資料...</div>
+                      {portfolioChanges.reductions.length > 0 ? (
+                        portfolioChanges.reductions.map(stock => (
+                          <div key={stock.code} className="bg-slate-900 p-3 rounded-lg border border-slate-850 hover:border-rose-500/20 transition-all">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm font-bold text-white">{stock.name} <span className="text-xs font-normal text-slate-500">{stock.code}</span></span>
+                              <span className="text-xs bg-rose-500/10 text-rose-400 px-2 py-0.5 rounded font-mono font-bold">
+                                {stock.isCleared ? '完全清倉' : `${((stock.diff) / 1000).toLocaleString()}K`}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 flex justify-between mt-1">
+                              <span>權重: {stock.weight}%</span>
+                              <span>庫存: {(stock.shares / 1000).toLocaleString()}K</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-slate-500 text-center py-6">今日無大幅減碼或清倉標的...</div>
+                      )}
                     </div>
+                    
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-3">
                       <h4 className="text-cyan-400 font-bold flex items-center gap-2 border-b border-slate-850 pb-2">
                         <i className="fas fa-bolt"></i> 【新建倉】巨型防禦地基
                       </h4>
-                      <div className="text-xs text-slate-500 text-center py-6">請等待匯入持股明細檔案以顯示資料...</div>
+                      {portfolioChanges.newPositions.length > 0 ? (
+                        portfolioChanges.newPositions.map(stock => (
+                          <div key={stock.code} className="bg-slate-900 p-3 rounded-lg border border-slate-850 hover:border-cyan-500/20 transition-all">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-sm font-bold text-white">{stock.name} <span className="text-xs font-normal text-slate-500">{stock.code}</span></span>
+                              <span className="text-xs bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded font-mono font-bold">建倉 {((stock.diff) / 1000).toLocaleString()}K</span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 flex justify-between mt-1">
+                              <span>權重: {stock.weight}%</span>
+                              <span>庫存: {(stock.shares / 1000).toLocaleString()}K</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-slate-500 text-center py-6">今日無新建倉標的...</div>
+                      )}
                     </div>
+                    
                   </div>
                 </section>
               </React.Fragment>
