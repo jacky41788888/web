@@ -78,7 +78,6 @@
     function App() {
       const [activeTab, setActiveTab] = useState('cloud');
       
-      // 已預設綁定您提供的最新 Google 官方 CSV 直接存取網址
       const [driveUrl, setDriveUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vSoEPmzQQPSf6WIfkASsEPdKkJvO2mVC250oDxt9-4Bis4T7cbNm90UTctKxKYuXx8k2pvdjkEE8zWY/pub?output=csv');
       const [portfolioUrl, setPortfolioUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vTYQaaQn2mJmWYp5xvYr5UUSsn4kNw3XmX03b0UniE6bNKtOAyixLoQ_C9e9Ki5wy1FSxjpv5HiNSUK/pub?output=csv');
       const [rawText, setRawText] = useState('');
@@ -241,7 +240,7 @@
         const defaultEtf = etfKeys[0];
         setSelectedEtf(defaultEtf);
         
-        // 嚴格的安全防禦：加入對應的存在判定，避免讀取 properties of undefined
+        // 嚴格的安全防禦：加入對應的存在判定
         if (parsed[defaultEtf] && parsed[defaultEtf][0]) {
           setSelectedDayDetail(parsed[defaultEtf][0].date);
         } else {
@@ -391,7 +390,6 @@
         const dates = Object.keys(loadedPortfolioData[selectedEtf]).sort((a, b) => new Date(b) - new Date(a));
         const currIdx = dates.indexOf(selectedDayDetail);
         
-        // 若找不到該日或沒有前一交易日可對比，則回傳空陣列
         if (currIdx === -1 || currIdx === dates.length - 1) return { additions: [], reductions: [], newPositions: [] };
 
         const currHoldings = loadedPortfolioData[selectedEtf][dates[currIdx]];
@@ -401,7 +399,6 @@
         const reductions = [];
         const newPositions = [];
 
-        // 檢查今天的持股：若前一天不存在則為「新建倉」，若大於前一天為「加碼」，若小於前一天為「減碼/清倉」
         for (const code in currHoldings) {
           const curr = currHoldings[code];
           const prev = prevHoldings[code];
@@ -415,14 +412,12 @@
           }
         }
 
-        // 檢查前一天存在但今天消失的持股：標記為「清倉」
         for (const code in prevHoldings) {
           if (!currHoldings[code] && prevHoldings[code].shares > 0) {
             reductions.push({ ...prevHoldings[code], shares: 0, diff: -prevHoldings[code].shares, isCleared: true });
           }
         }
 
-        // 依據變動股數排序 (加碼與新建倉由大到小；減碼清倉取絕對值由大到小)
         additions.sort((a, b) => b.diff - a.diff);
         reductions.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
         newPositions.sort((a, b) => b.diff - a.diff);
@@ -1011,4 +1006,3 @@
   </script>
 </body>
 </html>
- 
