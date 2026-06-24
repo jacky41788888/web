@@ -52,7 +52,6 @@
         try {
           if (!text || text.trim() === '') return {};
           
-          // 安全防禦：如果拿到的資料內含第三方代理的限制提示，拒絕解析以防止網頁崩潰
           if (text.includes('"error"') || text.includes('Free usage is limited')) {
             throw new Error('CORS 代理拒絕連線，請確認已轉為官方直接發布端點');
           }
@@ -139,12 +138,11 @@
         }
       };
 
-      // 數據同步器（移除 corsproxy 前綴，直接讀取 Google 官方通道）
+      // 數據同步器
       const syncData = async () => {
         setSyncStatus('loading');
         setErrorMessage('');
         try {
-          // 直接連線官方 CSV
           const response = await fetch(driveUrl);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const text = await response.text();
@@ -172,7 +170,6 @@
         setSyncStatus('loading');
         setErrorMessage('');
         try {
-          // 直接連線官方 CSV
           const response = await fetch(portfolioUrl);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const text = await response.text();
