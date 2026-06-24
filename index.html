@@ -6,14 +6,8 @@
   <title>主動式 ETF 雲端即時動態儀表板</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
   <style>
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
@@ -22,19 +16,24 @@
     .animate-fadeIn {
       animation: fadeIn 0.5s ease-out forwards;
     }
+    body {
+      background-color: rgb(15, 23, 42);
+      color: rgb(226, 232, 240);
+    }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+<body class="font-sans selection:bg-indigo-500 selection:text-white">
   
   <div id="root"></div>
 
-  <script type="text/babel">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <script>
     const { useState, useEffect, useMemo } = React;
 
     function App() {
       const [activeTab, setActiveTab] = useState('cloud');
-      
-      // 已成功更新為 Google 官方直接發布的 CSV 端點
       const [driveUrl, setDriveUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vSoEPmzQQPSf6WIfkASsEPdKkJvO2mVC250oDxt9-4Bis4T7cbNm90UTctKxKYuXx8k2pvdjkEE8zWY/pub?output=csv');
       const [portfolioUrl, setPortfolioUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vTYQaaQn2mJmWYp5xvYr5UUSsn4kNw3XmX03b0UniE6bNKtOAyixLoQ_C9e9Ki5wy1FSxjpv5HiNSUK/pub?output=csv');
       
@@ -45,14 +44,12 @@
       const [loadedPortfolioData, setLoadedPortfolioData] = useState({});
       const [syncStatus, setSyncStatus] = useState('idle');
       const [errorMessage, setErrorMessage] = useState('');
-      const [showHowToPublish, setShowHowToPublish] = useState(false);
 
-      // ==================== CSV 解析引擎 ====================
+      // CSV 解析引擎
       const parseCsvToData = (text) => {
         try {
           if (!text || text.trim() === '') return {};
           
-          // 安全防禦：如果拿到的文字包含錯誤 JSON 提示，拒絕解析以防黑屏
           if (text.includes('"error"') || text.includes('Free usage is limited')) {
             throw new Error('CORS 代理拒絕連線，請確認已轉為官方直接發布端點');
           }
@@ -139,7 +136,7 @@
         }
       };
 
-      // ==================== 數據同步器 ====================
+      // 數據同步器
       const syncData = async () => {
         setSyncStatus('loading');
         setErrorMessage('');
@@ -183,216 +180,201 @@
         else if (activeTab === 'portfolio') syncPortfolioData();
       }, [driveUrl, portfolioUrl, activeTab]);
 
-      // ==================== 渲染邏輯 ====================
+      // 渲染邏輯
       const etfList = useMemo(() => Object.keys(loadedData), [loadedData]);
       const currentEtfData = useMemo(() => loadedData[selectedEtf] || [], [loadedData, selectedEtf]);
       const currentDayData = useMemo(() => currentEtfData.find(d => d.date === selectedDayDetail), [currentEtfData, selectedDayDetail]);
 
-      return (
-        <div className="min-h-screen p-4 md:p-6">
-          <div className="max-w-7xl mx-auto">
-            {/* 標題 */}
-            <div className="text-center mb-8">
-              <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                主動式 ETF 雲端即時動態儀表板
-              </h1>
-              <p className="text-slate-400">實時監控 ETF 現金流與投資組合動態</p>
-            </div>
+      return React.createElement('div', { className: 'min-h-screen p-4 md:p-6' },
+        React.createElement('div', { className: 'max-w-7xl mx-auto' },
+          // 標題
+          React.createElement('div', { className: 'text-center mb-8' },
+            React.createElement('h1', { className: 'text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent' },
+              '主動式 ETF 雲端即時動態儀表板'
+            ),
+            React.createElement('p', { className: 'text-slate-400' },
+              '實時監控 ETF 現金流與投資組合動態'
+            )
+          ),
 
-            {/* 錯誤訊息 */}
-            {errorMessage && (
-              <div className="mb-4 p-4 bg-red-900/20 border border-red-700 rounded-lg text-red-400">
-                <i className="fas fa-exclamation-circle mr-2"></i>
-                {errorMessage}
-              </div>
-            )}
+          // 錯誤訊息
+          errorMessage && React.createElement('div', { className: 'mb-4 p-4 bg-red-900/20 border border-red-700 rounded-lg text-red-400' },
+            React.createElement('i', { className: 'fas fa-exclamation-circle mr-2' }),
+            errorMessage
+          ),
 
-            {/* 標籤頁 */}
-            <div className="flex gap-2 mb-6 border-b border-slate-700">
-              {['cloud', 'portfolio', 'settings'].map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 font-medium transition-colors ${
-                    activeTab === tab
-                      ? 'text-indigo-400 border-b-2 border-indigo-400'
-                      : 'text-slate-400 hover:text-slate-300'
-                  }`}
-                >
-                  {tab === 'cloud' && '現金流監控'}
-                  {tab === 'portfolio' && '投資組合'}
-                  {tab === 'settings' && '設定'}
-                </button>
-              ))}
-            </div>
+          // 標籤頁
+          React.createElement('div', { className: 'flex gap-2 mb-6 border-b border-slate-700' },
+            ['cloud', 'portfolio', 'settings'].map(tab =>
+              React.createElement('button', {
+                key: tab,
+                onClick: () => setActiveTab(tab),
+                className: `px-4 py-2 font-medium transition-colors ${
+                  activeTab === tab
+                    ? 'text-indigo-400 border-b-2 border-indigo-400'
+                    : 'text-slate-400 hover:text-slate-300'
+                }`
+              },
+                tab === 'cloud' && '現金流監控',
+                tab === 'portfolio' && '投資組合',
+                tab === 'settings' && '設定'
+              )
+            )
+          ),
 
-            {/* 內容區域 */}
-            {activeTab === 'cloud' && (
-              <div className="grid md:grid-cols-4 gap-4">
-                {/* ETF 選擇器 */}
-                <div className="md:col-span-1 bg-slate-900 rounded-lg p-4 border border-slate-800">
-                  <h3 className="font-semibold mb-3 text-indigo-400">ETF 基金</h3>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {etfList.length > 0 ? (
-                      etfList.map(etf => (
-                        <button
-                          key={etf}
-                          onClick={() => {
-                            setSelectedEtf(etf);
-                            setSelectedDayDetail(loadedData[etf][0].date);
-                          }}
-                          className={`w-full px-3 py-2 rounded text-sm transition-colors text-left ${
-                            selectedEtf === etf
-                              ? 'bg-indigo-600 text-white'
-                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                          }`}
-                        >
-                          {etf}
-                        </button>
-                      ))
-                    ) : (
-                      <p className="text-slate-500 text-sm">載入中...</p>
-                    )}
-                  </div>
-                </div>
+          // 內容區域
+          activeTab === 'cloud' && React.createElement('div', { className: 'grid md:grid-cols-4 gap-4' },
+            // ETF 選擇器
+            React.createElement('div', { className: 'md:col-span-1 bg-slate-900 rounded-lg p-4 border border-slate-800' },
+              React.createElement('h3', { className: 'font-semibold mb-3 text-indigo-400' }, 'ETF 基金'),
+              React.createElement('div', { className: 'space-y-2 max-h-96 overflow-y-auto' },
+                etfList.length > 0
+                  ? etfList.map(etf =>
+                      React.createElement('button', {
+                        key: etf,
+                        onClick: () => {
+                          setSelectedEtf(etf);
+                          setSelectedDayDetail(loadedData[etf][0].date);
+                        },
+                        className: `w-full px-3 py-2 rounded text-sm transition-colors text-left ${
+                          selectedEtf === etf
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`
+                      },
+                        etf
+                      )
+                    )
+                  : React.createElement('p', { className: 'text-slate-500 text-sm' }, '載入中...')
+              )
+            ),
 
-                {/* 主要顯示區 */}
-                <div className="md:col-span-3 space-y-4">
-                  {/* 日期選擇 */}
-                  {currentEtfData.length > 0 && (
-                    <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-                      <h3 className="font-semibold mb-3 text-indigo-400">選擇日期</h3>
-                      <div className="grid grid-cols-4 md:grid-cols-6 gap-2 max-h-24 overflow-y-auto">
-                        {currentEtfData.map(d => (
-                          <button
-                            key={d.date}
-                            onClick={() => setSelectedDayDetail(d.date)}
-                            className={`px-2 py-1 rounded text-xs transition-colors ${
-                              selectedDayDetail === d.date
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                            }`}
-                          >
-                            {d.date}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+            // 主要顯示區
+            React.createElement('div', { className: 'md:col-span-3 space-y-4' },
+              // 日期選擇
+              currentEtfData.length > 0 && React.createElement('div', { className: 'bg-slate-900 rounded-lg p-4 border border-slate-800' },
+                React.createElement('h3', { className: 'font-semibold mb-3 text-indigo-400' }, '選擇日期'),
+                React.createElement('div', { className: 'grid grid-cols-4 md:grid-cols-6 gap-2 max-h-24 overflow-y-auto' },
+                  currentEtfData.map(d =>
+                    React.createElement('button', {
+                      key: d.date,
+                      onClick: () => setSelectedDayDetail(d.date),
+                      className: `px-2 py-1 rounded text-xs transition-colors ${
+                        selectedDayDetail === d.date
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`
+                    },
+                      d.date
+                    )
+                  )
+                )
+              ),
 
-                  {/* 數據展示 */}
-                  {currentDayData && (
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-                        <h4 className="font-semibold text-indigo-400 mb-3">現金狀況</h4>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">實際現金 (億):</span>
-                            <span className="text-white font-semibold">{currentDayData.actualCash100M.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">現金比例:</span>
-                            <span className="text-white font-semibold">{currentDayData.cashRatio.toFixed(2)}%</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">現金變化:</span>
-                            <span className={currentDayData.cashChange >= 0 ? 'text-green-400' : 'text-red-400'}>
-                              {currentDayData.cashChange > 0 ? '+' : ''}{currentDayData.cashChange.toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+              // 數據展示
+              currentDayData && React.createElement('div', { className: 'grid md:grid-cols-2 gap-4' },
+                React.createElement('div', { className: 'bg-slate-900 rounded-lg p-4 border border-slate-800' },
+                  React.createElement('h4', { className: 'font-semibold text-indigo-400 mb-3' }, '現金狀況'),
+                  React.createElement('div', { className: 'space-y-2 text-sm' },
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '實際現金 (億):'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, currentDayData.actualCash100M.toFixed(2))
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '現金比例:'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, currentDayData.cashRatio.toFixed(2) + '%')
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '現金變化:'),
+                      React.createElement('span', { className: currentDayData.cashChange >= 0 ? 'text-green-400' : 'text-red-400' },
+                        (currentDayData.cashChange > 0 ? '+' : '') + currentDayData.cashChange.toFixed(2)
+                      )
+                    )
+                  )
+                ),
 
-                      <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-                        <h4 className="font-semibold text-indigo-400 mb-3">基金資訊</h4>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">淨資產 (億):</span>
-                            <span className="text-white font-semibold">{(currentDayData.netAsset / 100000000).toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">流通單位 (百萬):</span>
-                            <span className="text-white font-semibold">{(currentDayData.units / 1000000).toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">淨值:</span>
-                            <span className="text-white font-semibold">{currentDayData.nav.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+                React.createElement('div', { className: 'bg-slate-900 rounded-lg p-4 border border-slate-800' },
+                  React.createElement('h4', { className: 'font-semibold text-indigo-400 mb-3' }, '基金資訊'),
+                  React.createElement('div', { className: 'space-y-2 text-sm' },
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '淨資產 (億):'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, (currentDayData.netAsset / 100000000).toFixed(2))
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '流通單位 (百萬):'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, (currentDayData.units / 1000000).toFixed(2))
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '淨值:'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, currentDayData.nav.toFixed(2))
+                    )
+                  )
+                )
+              )
+            )
+          ),
 
-            {activeTab === 'portfolio' && (
-              <div className="bg-slate-900 rounded-lg p-6 border border-slate-800">
-                <h2 className="text-xl font-semibold mb-4 text-indigo-400">投資組合資訊</h2>
-                <p className="text-slate-400">投資組合數據將在此顯示...</p>
-              </div>
-            )}
+          activeTab === 'portfolio' && React.createElement('div', { className: 'bg-slate-900 rounded-lg p-6 border border-slate-800' },
+            React.createElement('h2', { className: 'text-xl font-semibold mb-4 text-indigo-400' }, '投資組合資訊'),
+            React.createElement('p', { className: 'text-slate-400' }, '投資組合數據將在此顯示...')
+          ),
 
-            {activeTab === 'settings' && (
-              <div className="space-y-4 max-w-2xl">
-                <div className="bg-slate-900 rounded-lg p-6 border border-slate-800">
-                  <h3 className="font-semibold mb-4 text-indigo-400">Google Sheets URL 設定</h3>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-2 text-slate-300">現金流 Sheet URL</label>
-                      <input
-                        type="text"
-                        value={driveUrl}
-                        onChange={(e) => setDriveUrl(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-indigo-500"
-                        placeholder="https://docs.google.com/spreadsheets/..."
-                      />
-                    </div>
+          activeTab === 'settings' && React.createElement('div', { className: 'space-y-4 max-w-2xl' },
+            React.createElement('div', { className: 'bg-slate-900 rounded-lg p-6 border border-slate-800' },
+              React.createElement('h3', { className: 'font-semibold mb-4 text-indigo-400' }, 'Google Sheets URL 設定'),
+              React.createElement('div', { className: 'space-y-4' },
+                React.createElement('div', {},
+                  React.createElement('label', { className: 'block text-sm font-medium mb-2 text-slate-300' }, '現金流 Sheet URL'),
+                  React.createElement('input', {
+                    type: 'text',
+                    value: driveUrl,
+                    onChange: (e) => setDriveUrl(e.target.value),
+                    className: 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-indigo-500',
+                    placeholder: 'https://docs.google.com/spreadsheets/...'
+                  })
+                ),
 
-                    <div>
-                      <label className="block text-sm font-medium mb-2 text-slate-300">投資組合 Sheet URL</label>
-                      <input
-                        type="text"
-                        value={portfolioUrl}
-                        onChange={(e) => setPortfolioUrl(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-indigo-500"
-                        placeholder="https://docs.google.com/spreadsheets/..."
-                      />
-                    </div>
+                React.createElement('div', {},
+                  React.createElement('label', { className: 'block text-sm font-medium mb-2 text-slate-300' }, '投資組合 Sheet URL'),
+                  React.createElement('input', {
+                    type: 'text',
+                    value: portfolioUrl,
+                    onChange: (e) => setPortfolioUrl(e.target.value),
+                    className: 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-indigo-500',
+                    placeholder: 'https://docs.google.com/spreadsheets/...'
+                  })
+                ),
 
-                    <button
-                      onClick={syncData}
-                      disabled={syncStatus === 'loading'}
-                      className="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 text-white rounded font-medium transition-colors"
-                    >
-                      {syncStatus === 'loading' ? '同步中...' : '立即同步'}
-                    </button>
-                  </div>
-                </div>
+                React.createElement('button', {
+                  onClick: syncData,
+                  disabled: syncStatus === 'loading',
+                  className: 'w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 text-white rounded font-medium transition-colors'
+                },
+                  syncStatus === 'loading' ? '同步中...' : '立即同步'
+                )
+              )
+            ),
 
-                <div className="bg-slate-900 rounded-lg p-6 border border-slate-800">
-                  <h3 className="font-semibold mb-4 text-indigo-400">CSV 格式說明</h3>
-                  <div className="text-sm text-slate-400 space-y-2">
-                    <p>CSV 檔案必須包含以下欄位：</p>
-                    <ul className="list-disc list-inside space-y-1">
-                      <li>資料日期 (Date)</li>
-                      <li>項目 (Item)</li>
-                      <li>數值 (Value)</li>
-                      <li>ETF類別 / 類別 / 代號 (ETF Category) - 可選</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+            React.createElement('div', { className: 'bg-slate-900 rounded-lg p-6 border border-slate-800' },
+              React.createElement('h3', { className: 'font-semibold mb-4 text-indigo-400' }, 'CSV 格式說明'),
+              React.createElement('div', { className: 'text-sm text-slate-400 space-y-2' },
+                React.createElement('p', {}, 'CSV 檔案必須包含以下欄位：'),
+                React.createElement('ul', { className: 'list-disc list-inside space-y-1' },
+                  React.createElement('li', {}, '資料日期 (Date)'),
+                  React.createElement('li', {}, '項目 (Item)'),
+                  React.createElement('li', {}, '數值 (Value)'),
+                  React.createElement('li', {}, 'ETF類別 / 類別 / 代號 (ETF Category) - 可選')
+                )
+              )
+            )
+          )
+        )
       );
     }
 
     // 掛載應用
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(React.createElement(App));
   </script>
 </body>
 </html>
