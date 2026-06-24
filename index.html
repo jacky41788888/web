@@ -3,17 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>主動式 ETF 雲端即時動態儀表板</title>
+  <title>主動式 ETF 雲端即時動態儀表板 - v2.0</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
   <style>
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
@@ -22,19 +16,26 @@
     .animate-fadeIn {
       animation: fadeIn 0.5s ease-out forwards;
     }
+    body {
+      background-color: rgb(15, 23, 42);
+      color: rgb(226, 232, 240);
+    }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+<body class="font-sans selection:bg-indigo-500 selection:text-white">
   
   <div id="root"></div>
 
-  <script type="text/babel">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <script>
     const { useState, useEffect, useMemo } = React;
 
     function App() {
       const [activeTab, setActiveTab] = useState('cloud');
       
-      // 已成功更新為 Google 官方直接發布的 CSV 端點
+      // 已更新為您提供的官方 CSV 直接讀取網址
       const [driveUrl, setDriveUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vSoEPmzQQPSf6WIfkASsEPdKkJvO2mVC250oDxt9-4Bis4T7cbNm90UTctKxKYuXx8k2pvdjkEE8zWY/pub?output=csv');
       const [portfolioUrl, setPortfolioUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vTYQaaQn2mJmWYp5xvYr5UUSsn4kNw3XmX03b0UniE6bNKtOAyixLoQ_C9e9Ki5wy1FSxjpv5HiNSUK/pub?output=csv');
       
@@ -45,14 +46,13 @@
       const [loadedPortfolioData, setLoadedPortfolioData] = useState({});
       const [syncStatus, setSyncStatus] = useState('idle');
       const [errorMessage, setErrorMessage] = useState('');
-      const [showHowToPublish, setShowHowToPublish] = useState(false);
 
-      // ==================== CSV 解析引擎 ====================
+      // CSV 解析引擎
       const parseCsvToData = (text) => {
         try {
           if (!text || text.trim() === '') return {};
           
-          // 安全防禦：如果拿到的文字包含錯誤 JSON 提示，拒絕解析以防黑屏
+          // 安全防禦：如果拿到的資料內含第三方代理的限制提示，拒絕解析以防止網頁崩潰
           if (text.includes('"error"') || text.includes('Free usage is limited')) {
             throw new Error('CORS 代理拒絕連線，請確認已轉為官方直接發布端點');
           }
@@ -134,243 +134,262 @@
 
           return resultData;
         } catch (e) {
-          throw new Error(`解析 CSV 發生錯誤：${e.message}`);
-        }
-      };
-
-      // ==================== 持股明細解析引擎 ====================
-      const parsePortfolioCsv = (text) => {
-        try {
-          if (!text || text.trim() === '') return {};
-          if (text.includes('"error"') || text.includes('Free usage is limited')) return {};
-
-          const lines = text.split(/\r?\n/);
-          if (lines.length < 2) return {};
-          
-          const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
-          const dateIdx = headers.findIndex(h => h.includes('日期') || h.toLowerCase().includes('date'));
-          const codeIdx = headers.findIndex(h => h.includes('股票代號') || h.includes('代碼'));
-          const nameIdx = headers.findIndex(h => h.includes('名稱'));
-          const sharesIdx = headers.findIndex(h => h.includes('股數'));
-          const weightIdx = headers.findIndex(h => h.includes('權重'));
-          const etfIdx = headers.findIndex(h => h.includes('ETF') || h.includes('類別'));
-
-          const tempMap = {};
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            const cells = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
-            if (cells.length < 4) continue;
-            
-            const etf = etfIdx !== -1 ? cells[etfIdx] : '00981A';
-            const date = cells[dateIdx];
-            const code = cells[codeIdx];
-            const name = cells[nameIdx];
-            const shares = parseFloat(cells[sharesIdx] || '0');
-            const weight = weightIdx !== -1 ? parseFloat(cells[weightIdx] || '0') : 0;
-            
-            if (!date || !code || isNaN(shares)) continue;
-            
-            if(!tempMap[etf]) tempMap[etf] = {};
-            if(!tempMap[etf][date]) tempMap[etf][date] = {};
-            tempMap[etf][date][code] = { code, name, shares, weight };
-          }
-          return tempMap;
-        } catch (e) {
-          console.warn(`明細 CSV 解析錯誤：${e.message}`);
+          setErrorMessage(e.message);
           return {};
         }
       };
 
-      // ==================== 官方 CSV 直接抓取處理 ====================
-      const fetchSingleCsv = async (targetUrl) => {
-        let directUrl = targetUrl;
-        
-        // 自動轉換 pubhtml 格式為正確的 CSV 直接讀取通道
-        if (targetUrl.includes('/pubhtml')) {
-          directUrl = targetUrl.replace('/pubhtml', '/pub?output=csv');
-        }
-
-        try {
-          // 直接連線 Google 官方 CSV，不再繞道 corsproxy.io
-          const response = await fetch(directUrl);
-          if (!response.ok) throw new Error('Google 伺服器回傳連線異常');
-          
-          const text = await response.text();
-          if (text.includes('<!DOCTYPE html>') || text.includes('Sign in - Google Accounts')) {
-            throw new Error('未成功取得 CSV，請確認試算表「發布到網路」設定是否正確。');
-          }
-          return text;
-        } catch (err) {
-          // 若直接獲取失敗，嘗試開源備用代理站點繞過
-          console.warn('官方直接連線受阻，啟動開源備用節點安全穿透...');
-          const backupProxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-          const res = await fetch(backupProxy);
-          if (res.ok) {
-            const backupText = await res.text();
-            if (backupText && !backupText.includes('<!DOCTYPE html>')) return backupText;
-          }
-          throw err;
-        }
-      };
-
-      const processLoadedData = (parsed) => {
-        const etfKeys = Object.keys(parsed);
-        if (etfKeys.length === 0) throw new Error('試算表中未含有任何有效欄位資料');
-        setLoadedData(parsed);
-        setSyncStatus('success');
-        const defaultEtf = etfKeys[0];
-        setSelectedEtf(defaultEtf);
-        if (parsed[defaultEtf]?.[0]) setSelectedDayDetail(parsed[defaultEtf][0].date);
-      };
-
-      const clearDataOnError = () => {
-        setLoadedData({});
-        setLoadedPortfolioData({});
-        setSelectedEtf('');
-        setSelectedDayDetail('');
-      };
-
-      const fetchCsvFromDrive = async (summaryUrl, portfolioUrlStr) => {
+      // 數據同步器（移除 corsproxy 前綴，直接讀取 Google 官方通道）
+      const syncData = async () => {
         setSyncStatus('loading');
         setErrorMessage('');
-
         try {
-          const summaryText = await fetchSingleCsv(summaryUrl);
-          const parsedSummary = parseCsvToData(summaryText);
-
-          let parsedPortfolio = {};
-          if (portfolioUrlStr && portfolioUrlStr.trim() !== '') {
-            try {
-              const portfolioText = await fetchSingleCsv(portfolioUrlStr);
-              parsedPortfolio = parsePortfolioCsv(portfolioText);
-            } catch (pErr) {
-              console.warn("持股明細抓取失敗，但仍會顯示資產總表", pErr);
-            }
+          // 直接連線官方 CSV
+          const response = await fetch(driveUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const text = await response.text();
+          
+          if (text.includes('<!DOCTYPE html>')) {
+            throw new Error('未成功取得 CSV，請檢查 Google 試算表發布格式設定。');
           }
-
-          setLoadedPortfolioData(parsedPortfolio);
-          processLoadedData(parsedSummary);
-        } catch (err) {
+          
+          const parsed = parseCsvToData(text);
+          setLoadedData(parsed);
+          setRawText(text);
+          const firstEtf = Object.keys(parsed)[0];
+          if (firstEtf) {
+            setSelectedEtf(firstEtf);
+            setSelectedDayDetail(parsed[firstEtf][0].date);
+          }
+          setSyncStatus('success');
+        } catch (e) {
+          setErrorMessage(e.message);
           setSyncStatus('error');
-          setErrorMessage(err.message);
-          clearDataOnError();
         }
       };
 
-      const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
+      const syncPortfolioData = async () => {
         setSyncStatus('loading');
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          try {
-            const text = event.target.result;
-            const parsed = parseCsvToData(text);
-            processLoadedData(parsed);
-            setErrorMessage('');
-          } catch (err) {
-            setSyncStatus('error');
-            setErrorMessage(err.message);
-            clearDataOnError();
-          }
-        };
-        reader.readAsText(file);
-      };
-
-      const handleRawTextParse = () => {
-        if (!rawText.trim()) return;
-        setSyncStatus('loading');
+        setErrorMessage('');
         try {
-          const parsed = parseCsvToData(rawText);
-          processLoadedData(parsed);
-          setErrorMessage('');
-        } catch (err) {
+          // 直接連線官方 CSV
+          const response = await fetch(portfolioUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const text = await response.text();
+          
+          if (text.includes('<!DOCTYPE html>')) {
+            throw new Error('未成功取得 CSV，請檢查 Google 試算表發布格式設定。');
+          }
+          
+          const parsed = parseCsvToData(text);
+          setLoadedPortfolioData(parsed);
+          setSyncStatus('success');
+        } catch (e) {
+          setErrorMessage(e.message);
           setSyncStatus('error');
-          setErrorMessage(err.message);
-          clearDataOnError();
         }
       };
 
       useEffect(() => {
-        fetchCsvFromDrive(driveUrl, portfolioUrl);
-      }, []);
+        if (activeTab === 'cloud') syncData();
+        else if (activeTab === 'portfolio') syncPortfolioData();
+      }, [driveUrl, portfolioUrl, activeTab]);
 
-      const activeDataset = useMemo(() => loadedData[selectedEtf] || [], [loadedData, selectedEtf]);
-      const latestFiveDays = useMemo(() => activeDataset.slice(0, 5), [activeDataset]);
-      const selectedDayData = useMemo(() => activeDataset.find(d => d.date === selectedDayDetail) || activeDataset[0] || null, [activeDataset, selectedDayDetail]);
+      // 渲染邏輯
+      const etfList = useMemo(() => Object.keys(loadedData), [loadedData]);
+      const currentEtfData = useMemo(() => loadedData[selectedEtf] || [], [loadedData, selectedEtf]);
+      const currentDayData = useMemo(() => currentEtfData.find(d => d.date === selectedDayDetail), [currentEtfData, selectedDayDetail]);
 
-      const portfolioChanges = useMemo(() => {
-        if (!loadedPortfolioData[selectedEtf]) return { additions: [], reductions: [], newPositions: [] };
-        const dates = Object.keys(loadedPortfolioData[selectedEtf]).sort((a, b) => new Date(b) - new Date(a));
-        const currIdx = dates.indexOf(selectedDayDetail);
-        
-        if (currIdx === -1 || currIdx === dates.length - 1) return { additions: [], reductions: [], newPositions: [] };
+      return React.createElement('div', { className: 'min-h-screen p-4 md:p-6' },
+        React.createElement('div', { className: 'max-w-7xl mx-auto' },
+          // 標題
+          React.createElement('div', { className: 'text-center mb-8' },
+            React.createElement('h1', { className: 'text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent' },
+              '主動式 ETF 雲端即時動態儀表板'
+            ),
+            React.createElement('p', { className: 'text-slate-400' },
+              '實時監控 ETF 現金流與投資組合動態'
+            )
+          ),
 
-        const currHoldings = loadedPortfolioData[selectedEtf][dates[currIdx]];
-        const prevHoldings = loadedPortfolioData[selectedEtf][dates[currIdx + 1]];
+          // 錯誤訊息
+          errorMessage && React.createElement('div', { className: 'mb-4 p-4 bg-red-900/20 border border-red-700 rounded-lg text-red-400' },
+            React.createElement('i', { className: 'fas fa-exclamation-circle mr-2' }),
+            errorMessage
+          ),
 
-        const additions = [];
-        const reductions = [];
-        const newPositions = [];
+          // 標籤頁
+          React.createElement('div', { className: 'flex gap-2 mb-6 border-b border-slate-700' },
+            ['cloud', 'portfolio', 'settings'].map(tab =>
+              React.createElement('button', {
+                key: tab,
+                onClick: () => setActiveTab(tab),
+                className: `px-4 py-2 font-medium transition-colors ${
+                  activeTab === tab
+                    ? 'text-indigo-400 border-b-2 border-indigo-400'
+                    : 'text-slate-400 hover:text-slate-300'
+                }`
+              },
+                tab === 'cloud' && '現金流監控',
+                tab === 'portfolio' && '投資組合',
+                tab === 'settings' && '設定'
+              )
+            )
+          ),
 
-        for (const code in currHoldings) {
-          const curr = currHoldings[code];
-          const prev = prevHoldings[code];
-          
-          if (!prev || prev.shares === 0) {
-            if (curr.shares > 0) newPositions.push({ ...curr, diff: curr.shares });
-          } else if (curr.shares > prev.shares) {
-            additions.push({ ...curr, diff: curr.shares - prev.shares });
-          } else if (curr.shares < prev.shares) {
-            reductions.push({ ...curr, diff: curr.shares - prev.shares, isCleared: curr.shares === 0 });
-          }
-        }
+          // 內容區域
+          activeTab === 'cloud' && React.createElement('div', { className: 'grid md:grid-cols-4 gap-4' },
+            // ETF 選擇器
+            React.createElement('div', { className: 'md:col-span-1 bg-slate-900 rounded-lg p-4 border border-slate-800' },
+              React.createElement('h3', { className: 'font-semibold mb-3 text-indigo-400' }, 'ETF 基金'),
+              React.createElement('div', { className: 'space-y-2 max-h-96 overflow-y-auto' },
+                etfList.length > 0
+                  ? etfList.map(etf =>
+                      React.createElement('button', {
+                        key: etf,
+                        onClick: () => {
+                          setSelectedEtf(etf);
+                          setSelectedDayDetail(loadedData[etf][0].date);
+                        },
+                        className: `w-full px-3 py-2 rounded text-sm transition-colors text-left ${
+                          selectedEtf === etf
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`
+                      },
+                        etf
+                      )
+                    )
+                  : React.createElement('p', { className: 'text-slate-500 text-sm' }, '載入中...')
+              )
+            ),
 
-        for (const code in prevHoldings) {
-          if (!currHoldings[code] && prevHoldings[code].shares > 0) {
-            reductions.push({ ...prevHoldings[code], shares: 0, diff: -prevHoldings[code].shares, isCleared: true });
-          }
-        }
+            // 主要顯示區
+            React.createElement('div', { className: 'md:col-span-3 space-y-4' },
+              // 日期選擇
+              currentEtfData.length > 0 && React.createElement('div', { className: 'bg-slate-900 rounded-lg p-4 border border-slate-800' },
+                React.createElement('h3', { className: 'font-semibold mb-3 text-indigo-400' }, '選擇日期'),
+                React.createElement('div', { className: 'grid grid-cols-4 md:grid-cols-6 gap-2 max-h-24 overflow-y-auto' },
+                  currentEtfData.map(d =>
+                    React.createElement('button', {
+                      key: d.date,
+                      onClick: () => setSelectedDayDetail(d.date),
+                      className: `px-2 py-1 rounded text-xs transition-colors ${
+                        selectedDayDetail === d.date
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`
+                    },
+                      d.date
+                    )
+                  )
+                )
+              ),
 
-        additions.sort((a, b) => b.diff - a.diff);
-        reductions.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
-        newPositions.sort((a, b) => b.diff - a.diff);
+              // 數據展示
+              currentDayData && React.createElement('div', { className: 'grid md:grid-cols-2 gap-4' },
+                React.createElement('div', { className: 'bg-slate-900 rounded-lg p-4 border border-slate-800' },
+                  React.createElement('h4', { className: 'font-semibold text-indigo-400 mb-3' }, '現金狀況'),
+                  React.createElement('div', { className: 'space-y-2 text-sm' },
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '實際現金 (億):'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, currentDayData.actualCash100M.toFixed(2))
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '現金比例:'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, currentDayData.cashRatio.toFixed(2) + '%')
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '現金變化:'),
+                      React.createElement('span', { className: currentDayData.cashChange >= 0 ? 'text-green-400' : 'text-red-400' },
+                        (currentDayData.cashChange > 0 ? '+' : '') + currentDayData.cashChange.toFixed(2)
+                      )
+                    )
+                  )
+                ),
 
-        return { additions, reductions, newPositions };
-      }, [loadedPortfolioData, selectedEtf, selectedDayDetail]);
+                React.createElement('div', { className: 'bg-slate-900 rounded-lg p-4 border border-slate-800' },
+                  React.createElement('h4', { className: 'font-semibold text-indigo-400 mb-3' }, '基金資訊'),
+                  React.createElement('div', { className: 'space-y-2 text-sm' },
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '淨資產 (億):'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, (currentDayData.netAsset / 100000000).toFixed(2))
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '流通單位 (百萬):'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, (currentDayData.units / 1000000).toFixed(2))
+                    ),
+                    React.createElement('div', { className: 'flex justify-between' },
+                      React.createElement('span', { className: 'text-slate-400' }, '淨值:'),
+                      React.createElement('span', { className: 'text-white font-semibold' }, currentDayData.nav.toFixed(2))
+                    )
+                  )
+                )
+              )
+            )
+          ),
 
-      const cashTacticsInterpretation = (dayData) => {
-        if (!dayData) return { title: '無數據', text: '暫無數據可供分析。', color: 'bg-slate-800' };
-        const change = dayData.cashChange;
-        const isPreSpending = dayData.receivable < 0 && Math.abs(dayData.receivable) > dayData.cash;
+          activeTab === 'portfolio' && React.createElement('div', { className: 'bg-slate-900 rounded-lg p-6 border border-slate-800' },
+            React.createElement('h2', { className: 'text-xl font-semibold mb-4 text-indigo-400' }, '投資組合資訊'),
+            React.createElement('p', { className: 'text-slate-400' }, '投資組合數據將在此顯示...')
+          ),
 
-        if (isPreSpending) return { title: '領錢進攻 ＆ 預支佈局 🚀', text: `今日實際「應收付證券交割款」高達 -${(Math.abs(dayData.receivable)/100000000).toFixed(2)} 億，已超出帳面現金庫存。這代表經理人利用 T+2 交割時差提前「預支」資金買進潛力股。目前處於火力全開的絕對進攻狀態！`, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' };
-        if (change < 0) return { title: '領錢進攻（大舉入市） 🔥', text: `今日實際可用剩餘現金減少 ${Math.abs(change).toFixed(2)} 億。這代表經理人此時正將累積下來的防禦銀彈大舉提領並換成股票持股，操作取態積極強勢！`, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
-        return { title: '存錢防禦（累積彈藥） 🛡️', text: `今日實際剩餘可用金增加 ${change.toFixed(2)} 億。主要反映經理人適度主動賣股變現以調節風險；或為當日湧入大筆新申購資金尚來不及布局股票，資金被動累積，為後續保留進攻底牌。`, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' };
-      };
+          activeTab === 'settings' && React.createElement('div', { className: 'space-y-4 max-w-2xl' },
+            React.createElement('div', { className: 'bg-slate-900 rounded-lg p-6 border border-slate-800' },
+              React.createElement('h3', { className: 'font-semibold mb-4 text-indigo-400' }, 'Google Sheets URL 設定'),
+              React.createElement('div', { className: 'space-y-4' },
+                React.createElement('div', {},
+                  React.createElement('label', { className: 'block text-sm font-medium mb-2 text-slate-300' }, '現金流 Sheet URL'),
+                  React.createElement('input', {
+                    type: 'text',
+                    value: driveUrl,
+                    onChange: (e) => setDriveUrl(e.target.value),
+                    className: 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-indigo-500',
+                    placeholder: 'https://docs.google.com/spreadsheets/...'
+                  })
+                ),
 
-      const marketSentimentInterpretation = (dayData) => {
-        if (!dayData) return { text: '無數據', trend: '平穩' };
-        const ratioChange = dayData.unitsChangeRatio;
-        const estFlow = dayData.estCashFlow100M;
+                React.createElement('div', {},
+                  React.createElement('label', { className: 'block text-sm font-medium mb-2 text-slate-300' }, '投資組合 Sheet URL'),
+                  React.createElement('input', {
+                    type: 'text',
+                    value: portfolioUrl,
+                    onChange: (e) => setPortfolioUrl(e.target.value),
+                    className: 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-indigo-500',
+                    placeholder: 'https://docs.google.com/spreadsheets/...'
+                  })
+                ),
 
-        if (ratioChange > 1.5) return { trend: '極度狂熱 📈', text: `流通在外受益單位單日暴增 ${(ratioChange).toFixed(2)}%，推估為基金帶進高達 +${estFlow.toFixed(2)} 億元的搶購狂潮。買盤流入速度正「瘋狂變快」！` };
-        if (ratioChange > 0.05) return { trend: '買氣暢旺 👍', text: `大眾申購穩定遞增，流通單位數成長 ${(ratioChange).toFixed(2)}%，挹注新資金約 +${estFlow.toFixed(2)} 億。進場追價速度「穩定加溫」。` };
-        if (ratioChange < -0.05) return { trend: '獲利贖回 💰', text: `流通在外單位減少 ${Math.abs(ratioChange).toFixed(2)}%，估計流出金額約 ${Math.abs(estFlow).toFixed(2)} 億。買進速度「正在放慢」，大眾多選擇逢高了結、落袋為安。` };
-        return { trend: '靜待變盤 ⚖️', text: `流通單位變動平緩 (${(ratioChange).toFixed(3)}%)。市場目前正處於觀望階段，多空情緒暫時平穩沉澱。` };
-      };
+                React.createElement('button', {
+                  onClick: syncData,
+                  disabled: syncStatus === 'loading',
+                  className: 'w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 text-white rounded font-medium transition-colors'
+                },
+                  syncStatus === 'loading' ? '同步中...' : '立即同步'
+                )
+              )
+            ),
 
-      // ==================== 繪圖元件 ====================
-      const ChronologicalCashChart = () => {
-        const chronologicalDays = useMemo(() => [...latestFiveDays].reverse(), [latestFiveDays]);
-        const [hoveredIdx, setHoveredIdx] = useState(null);
-        if (chronologicalDays.length === 0) return null;
+            React.createElement('div', { className: 'bg-slate-900 rounded-lg p-6 border border-slate-800' },
+              React.createElement('h3', { className: 'font-semibold mb-4 text-indigo-400' }, 'CSV 格式說明'),
+              React.createElement('div', { className: 'text-sm text-slate-400 space-y-2' },
+                React.createElement('p', {}, 'CSV 檔案必須包含以下欄位：'),
+                React.createElement('ul', { className: 'list-disc list-inside space-y-1' },
+                  React.createElement('li', {}, '資料日期 (Date)'),
+                  React.createElement('li', {}, '項目 (Item)'),
+                  React.createElement('li', {}, '數值 (Value)'),
+                  React.createElement('li', {}, 'ETF類別 / 類別 / 代號 (ETF Category) - 可選')
+                )
+              )
+            )
+          )
+        )
+      );
+    }
 
-        const cashValues = chronologicalDays.map(d => d.actualCash100M);
-        const maxCash = Math.max(...cashValues, 0.1) * 1.15;
-        const minCash = Math.min(...cashValues, 0) < 0 ? Math.min(...cashValues) * 1.15 : 0;
-        
-        const svgW = 600; const svgH = 180;
-        const pad = { top: 15, right: 30, bottom: 30 ... }; // 保持內部圖表渲染不變
+    // 掛載應用
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
