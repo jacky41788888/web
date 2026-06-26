@@ -427,7 +427,7 @@
 
       // ==================== 策略解讀 ====================
       const cashTacticsInterpretation = (dayData) => {
-        if (!dayData) return { title: '無數據', text: '暫無數據可供分析。', color: 'bg-slate-800' };
+        if (!dayData) return { title: '無數據', text: '暫暫無數據可供分析。', color: 'bg-slate-800' };
         const change = dayData.cashChange;
         const isPreSpending = dayData.receivable < 0 && Math.abs(dayData.receivable) > dayData.cash;
 
@@ -608,22 +608,13 @@
                     主動式 ETF 雲端即時動態儀表板
                   </h1>
                   <p className="text-xs text-slate-400">自動綁定 Google 試算表端點 · 前端邏輯解算</p>
-                  <a href="https://jacky41788888.github.io/k-means/" target="_blank" rel="noopener noreferrer" class="ml-3 text-sm text-indigo-300 hover:text-indigo-200 font-semibold">
-  AI分析網頁
-</a>
                 </div>
               </div>
-              <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-                <button onClick={() => setActiveTab('cloud')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'cloud' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
-                  <i className="fas fa-link"></i> Google 試算表
-                </button>
-                <button onClick={() => setActiveTab('raw_paste')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'raw_paste' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
-                  <i className="fas fa-file-alt"></i> 手動貼上 CSV
-                </button>
-                <button onClick={() => setActiveTab('upload')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${activeTab === 'upload' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>
-                  <i className="fas fa-hdd"></i> 本地上傳
-                </button>
-              </div>
+              
+              {/* 移至右上角並顯著放大的 AI分析網頁 連結 */}
+              <a href="https://jacky41788888.github.io/k-means/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white shadow-lg shadow-indigo-500/20 transition-all transform hover:scale-105 active:scale-95">
+                <i className="fas fa-brain text-base"></i> AI 分析網頁
+              </a>
             </div>
           </header>
 
