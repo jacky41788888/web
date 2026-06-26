@@ -701,12 +701,12 @@
                   <div className="flex items-center gap-3">
                     <i className="fas fa-check-circle"></i> <span>🟢 成功！已成功連通試算表數據，即時執行公式精算中。</span>
                   </div>
-                  <div className="flex items-center gap-2 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
-                    <span className="text-[10px] text-slate-400">分析 ETF 代號：</span>
-                    <select value={selectedEtf} onChange={(e) => { setSelectedEtf(e.target.value); if (loadedData[e.target.value]?.[0]) setSelectedDayDetail(loadedData[e.target.value][0].date); }} className="bg-transparent text-xs font-bold text-indigo-400 focus:outline-none cursor-pointer">
-                      {Object.keys(loadedData).map(etf => <option key={etf} value={etf} className="bg-slate-900">{etf}</option>)}
-                    </select>
-                  </div>
+                  <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-lg border border-slate-800">
+  <span className="text-sm font-bold text-slate-300">分析 ETF 代號：</span>
+  <select value={selectedEtf} onChange={(e) => { setSelectedEtf(e.target.value); if (loadedData[e.target.value]?.[0]) setSelectedDayDetail(loadedData[e.target.value][0].date); }} className="bg-transparent text-lg font-bold text-indigo-400 focus:outline-none cursor-pointer">
+    {Object.keys(loadedData).map(etf => <option key={etf} value={etf} className="bg-slate-900">{etf}</option>)}
+  </select>
+</div>
                 </div>
               )}
               {syncStatus === 'error' && (
